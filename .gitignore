@@ -1,8 +1,0 @@
-# Keep local Android signing identities out of the repository.
-tools/signing/*.p12
-tools/signing/*.pfx
-tools/signing/*.jks
-tools/signing/*.keystore
-
-# APK build outputs are distributed separately from source control.
-*.apk
