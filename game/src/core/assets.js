@@ -12,6 +12,8 @@ class Assets {
     this.current = null;
     this.currentId = null;
     this.fadeToken = 0;
+    this.suspended = false;
+    this.fadingAudio = new Set();
     this.musicVolume = 0.4;
     const storedMaster = ILY.AudioSettings ? ILY.AudioSettings.getMaster() : 1;
     this.masterVolume = clamp01With(storedMaster, 1);
@@ -40,6 +42,7 @@ class Assets {
     return clamp01(cueVolume * (this.musicVolume / 0.4) * this.masterVolume);
   }
   start(audio) {
+    if (this.suspended) return;
     audio.play().catch(() => { this.armGestureUnlock(); });
   }
   reportFailure(id, path) {
@@ -61,12 +64,13 @@ class Assets {
       if (this.enabled) this.start(next);
     }
     if (!previous) return;
-    if (!this.enabled || fadeMs <= 0) { previous.pause(); return; }
+    if (!this.enabled || this.suspended || fadeMs <= 0) { previous.pause(); return; }
+    this.fadingAudio.add(previous);
     const started = performance.now(), from = previous.volume;
     let finished = false;
     const step = now => {
       if (finished) return;
-      if (token !== this.fadeToken) { finished = true; previous.pause(); return; }
+      if (token !== this.fadeToken) { finished = true; previous.pause(); this.fadingAudio.delete(previous); return; }
       /* 一定要两头夹住：requestAnimationFrame 回调收到的是「本帧开始的时间」，
          可能比排程那一刻的 performance.now() 还早几毫秒。不夹的话第一帧 ratio 会算出
          负数 → next.volume 被赋成负值 → HTMLMediaElement 直接抛 IndexSizeError，
@@ -76,7 +80,7 @@ class Assets {
       const ratio = Math.max(0, Math.min(1, (now - started) / fadeMs));
       previous.volume = Math.max(0, Math.min(1, from * (1 - ratio)));
       if (next) next.volume = Math.max(0, Math.min(1, target * ratio));
-      if (ratio < 1) requestAnimationFrame(step); else { finished = true; previous.pause(); }
+      if (ratio < 1) requestAnimationFrame(step); else { finished = true; previous.pause(); this.fadingAudio.delete(previous); }
     };
     requestAnimationFrame(step);
     // 后台标签页里 requestAnimationFrame 会停摆，淡出可能永远收不了尾，
@@ -85,13 +89,26 @@ class Assets {
       if (finished || token !== this.fadeToken) return;
       finished = true;
       previous.pause();
+      this.fadingAudio.delete(previous);
       // 淡入没跑完时也要把新曲目补到目标音量：淡入的初始音量是 0，
       // 兜底只停旧曲、不补新曲的话，结果就是"旧的不响了、新的也没声"。
       if (next) next.volume = target;
     }, fadeMs + 1200);
   }
   play() {
-    if (this.enabled && this.audio && this.audio.paused) this.audio.play().catch(() => {});
+    if (!this.suspended && this.enabled && this.audio && this.audio.paused) this.audio.play().catch(() => {});
+  }
+  suspend() {
+    this.suspended = true;
+    ++this.fadeToken;
+    this.audio?.pause();
+    for (const audio of this.fadingAudio) audio.pause();
+    this.fadingAudio.clear();
+  }
+  resume() {
+    this.suspended = false;
+    if (this.audio) this.audio.volume = this.targetVolume();
+    this.play();
   }
   toggle() {
     this.enabled = !this.enabled;

@@ -115,7 +115,12 @@ function canStandRpg(map,x,y) {
 function moveRpg(map,position,dx,dy) {
   const steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/.1));
   for(let i=0;i<steps;i++) {
-    if(canStandRpg(map,position.x+dx/steps,position.y))position.x+=dx/steps;
+    const nextX=position.x+dx/steps;
+    const barrier=(map.verticalBarriers||[]).some(({x,fromY,toY})=>
+      position.y>=fromY && position.y<=toY &&
+      ((position.x<x && nextX>=x)||(position.x>x && nextX<=x)||
+       (position.x===x && nextX!==x)));
+    if(!barrier && canStandRpg(map,nextX,position.y))position.x=nextX;
     if(canStandRpg(map,position.x,position.y+dy/steps))position.y+=dy/steps;
   }
 }

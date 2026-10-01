@@ -7,7 +7,7 @@ const SAVE_FORMAT = 'ily-save';
 const SAVE_FORMAT_VERSION = 2;
 const MANUAL_PAGES = 2;
 const SLOTS_PER_PAGE = 6;
-const AUTOSAVE_SLOTS = 3;
+const AUTOSAVE_SLOTS = 6;
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -22,6 +22,7 @@ class SaveManager {
     this.prefix = `ily-save-v2:${this.player}:`;
     this.legacyKey = `ily-save-v1:${username || 'guest'}`;
     this.migrationKey = `${this.prefix}_migration-v1`;
+    this.achievementsKey = `${this.prefix}_achievements`;
   }
 
   slotName(page, slot) {
@@ -88,6 +89,7 @@ class SaveManager {
 
   save(page, slot, state, options) {
     if (!this.storage) throw new Error('浏览器存储不可用。');
+    this.persistAchievements(state);
     const record = this.createRecord(page, slot, state, options);
     this.storage.setItem(this.key(page, slot), JSON.stringify(record));
     return record;
@@ -119,6 +121,36 @@ class SaveManager {
       else this.storage.removeItem(this.key('auto', slot));
     }
     return this.save('auto', 1, state);
+  }
+
+  // 成就是账号进度。首次运行时先从现有槽位迁移，避免循环自动档覆盖旧结局。
+  collectAchievements() {
+    const ids = new Set();
+    if (!this.storage) return ids;
+    try {
+      const stored = JSON.parse(this.storage.getItem(this.achievementsKey) || '[]');
+      if (Array.isArray(stored)) stored.forEach(id => ids.add(id));
+      for (const page of ['1', '2', 'auto', 'quick']) {
+        for (const item of this.list(page)) {
+          const list = item.status === 'ok' && item.record.state.flags?.achievements;
+          if (Array.isArray(list)) list.forEach(id => ids.add(id));
+        }
+      }
+      const legacy = JSON.parse(this.storage.getItem(this.legacyKey) || 'null');
+      if (Array.isArray(legacy?.flags?.achievements)) legacy.flags.achievements.forEach(id => ids.add(id));
+    } catch { /* 损坏或不可用的存储不影响游戏 */ }
+    return ids;
+  }
+
+  persistAchievements(state, { migrate = false } = {}) {
+    let stored = [];
+    try { stored = JSON.parse(this.storage?.getItem(this.achievementsKey) || '[]'); } catch {}
+    const ids = migrate ? this.collectAchievements() : new Set(Array.isArray(stored) ? stored : []);
+    const current = state?.flags?.achievements;
+    if (Array.isArray(current)) current.forEach(id => ids.add(id));
+    if (state?.flags) state.flags.achievements = [...ids];
+    try { this.storage?.setItem(this.achievementsKey, JSON.stringify([...ids])); } catch {}
+    return ids;
   }
 
   migrateLegacy() {

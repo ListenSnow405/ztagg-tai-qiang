@@ -236,9 +236,8 @@ ILY.data.chapterMaps = {
       "player": "ch1-sprite-kio"
     }
   },
-  // 2026-09-25 手工同步 chapters.json：出生点移到左下台阶口 (5,16)；x10 列 y1~14 加空气墙
-  // （pixel-map 渲染器不画 tile 网格，非 '.' 即阻挡且不可见）。y15/y16 保持通行、
-  // 旧出生点 (10,15) 保持可走，兼容旧存档的 validateSave 位置校验。
+  // 与 chapters.json 同步：顶部 x10 通行；底部通过 verticalBarriers 封住台阶侧面，
+  // 同时保留旧存档 (10,15) 的位置校验兼容性。
   "ch2-stairs": {
     "id": "ch2-stairs",
     "name": "长楼梯 · 自动售货机",
@@ -251,8 +250,8 @@ ILY.data.chapterMaps = {
     },
     "tiles": [
       "############################",
-      "#FFFF.....F................#",
-      "#FFFF.....F..........FFF...#",
+      "#FFFF......................#",
+      "#FFFF................FFF...#",
       "#FFFF.....FFFFFFF....FFF...#",
       "#FFFF.....FFFFFFF....FFF...#",
       "#FFFF.....FFFFFFF..........#",
@@ -268,6 +267,9 @@ ILY.data.chapterMaps = {
       "#FFFF.............FFFFFFF..#",
       "#FFFF......................#",
       "############################"
+    ],
+    "verticalBarriers": [
+      { "x": 9.5, "fromY": 14.5, "toY": 16.5 }
     ],
     "hotspots": [],
     "events": [

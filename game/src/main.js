@@ -65,6 +65,8 @@ try {
   username = launchParams.get('player') || username;
   const saves = new SaveManager({ storage, username, story, maps, validateSave });
   const migratedLegacySave = saves.migrateLegacy();
+  saves.persistAchievements(state, { migrate: true });
+  ILY.persistAchievements = current => saves.persistAchievements(current);
   const menu = new URL('../sign&log/game.html', location.href);
   if (launchParams.get('entry') === 'root') menu.searchParams.set('entry', 'root');
   menu.searchParams.set('player', username);
@@ -347,6 +349,7 @@ try {
           if (!occupied || !window.confirm(t('save.confirmLoad', { label }))) return;
           try {
             state = saves.load(savePage, inspected.slot);
+            saves.persistAchievements(state);
             rollbackHistory.reset();
             /* 真的读到存档了，之后关掉弹窗就留在游戏里（必须在 close() 之前清掉）。 */
             awaitingMenuLoad = false;
@@ -432,14 +435,9 @@ try {
     inPrologue: () => !!ILY.data.stories.prologue.nodes[state.node]
   });
 
-  let interactionsSinceAutosave = 0;
   function maybeAutosave(node, enabled) {
-    if (!enabled) return;
-    interactionsSinceAutosave++;
-    const checkpoint = node.checkpoint || node.type === 'choice' || ['rpg', 'photo', 'computer', 'phone', 'walk', 'corridor', 'finale', 'branch', 'end'].includes(node.type);
-    if (!checkpoint && interactionsSinceAutosave < 8) return;
+    if (!enabled || !(node.checkpoint || node.type === 'choice')) return;
     try { saves.autosave(state); } catch {}
-    interactionsSinceAutosave = 0;
   }
 
   function go(id, options = {}) {
@@ -483,6 +481,7 @@ try {
     if (!refreshing) ILY.activateMemory(state, next, node);
     if (options.recordRollback !== false) rollbackHistory.record(state);
     if (!refreshing) ILY.enterChapterNode(state,node);
+    saves.persistAchievements(state);
     document.querySelector('#chapter').textContent = node.chapterTitle || t('chapter.title');
     stage.replaceChildren(); stage.style.backgroundImage = ''; stage.dataset.mode = node.type;
     stage.dataset.chapter = node.chapter || '';
@@ -509,6 +508,7 @@ try {
     else if (node.type === 'battle') cleanup = mountBattle({...context, level:levels[node.level]});
     else if (node.type === 'finale' || node.type === 'branch' || node.type === 'end') {
       if (node.enter) node.enter(state, notify, assets);
+      saves.persistAchievements(state);
       const end = el('section', 'mode-panel');
       end.append(el('h1', '', node.title || t('end.tbc')));
       if (node.text) end.append(el('p', '', node.text));
@@ -521,14 +521,14 @@ try {
         end.append(button(t('ed.replay'), () => { cleanup(); cleanup = ILY.EndingVideo.play(ed); }));
       }
       if(node.ending)end.append(button('读取存档，探索另一种选择',()=>openSaveMenu('load')));
-      end.append(button(t('end.restart'), () => { state = createState(story.start); rollbackHistory.reset(); go(story.start); }));
+      end.append(button(t('end.restart'), () => { state = createState(story.start); saves.persistAchievements(state); rollbackHistory.reset(); go(story.start); }));
       stage.append(end);
       if (ILY.EndingVideo.shouldPlay({ node, state, restoringRollback: options.restoringRollback === true })) {
         cleanup = ILY.EndingVideo.play(ed);
       }
     } else {
       const end = el('section', 'mode-panel');
-      end.append(el('h1', '', t('end.tbc')), el('p', '', node.text), button(t('end.restart'), () => { state = createState(story.start); rollbackHistory.reset(); go(story.start); }));
+      end.append(el('h1', '', t('end.tbc')), el('p', '', node.text), button(t('end.restart'), () => { state = createState(story.start); saves.persistAchievements(state); rollbackHistory.reset(); go(story.start); }));
       stage.append(end);
     }
     maybeAutosave(node, options.autosave !== false);
@@ -616,6 +616,7 @@ try {
     const [page, number] = loadSlot.split('-');
     try {
       state = saves.load(page, Number(number));
+      saves.persistAchievements(state);
       rollbackHistory.reset();
       awaitingMenuLoad = false;
     } catch (error) {
