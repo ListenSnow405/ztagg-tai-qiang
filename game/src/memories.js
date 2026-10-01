@@ -47,7 +47,7 @@ const ACH_BG = {
   'ILY = I LOVE YOU': 'bg-coast-blue'        // 终章 搜索演出 S05
 };
 /* v2 存档槽 key 的合法格式（与 src/core/saves.js 一致） */
-const SAVE_KEY_RE = /^(?:[12]-[1-6]|auto-[1-3]|quick-1)$/;
+const SAVE_KEY_RE = /^(?:[12]-[1-6]|auto-[1-6]|quick-1)$/;
 
 let deps = { saves: null, getState: null, resolveAsset: null, stage: null };
 let built = false;
@@ -64,6 +64,7 @@ function collectAchievements() {
 
   const saves = deps.saves;
   if (saves && saves.storage) {
+    try { saves.collectAchievements().forEach(id => unlocked.add(id)); } catch {}
     for (const page of ['1', '2', 'auto', 'quick']) {
       let items = [];
       try { items = saves.list(page); } catch { continue; }

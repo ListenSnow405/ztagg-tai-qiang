@@ -36,7 +36,7 @@ const ACH_BG = {
   'ILY = I LOVE YOU': 'bg-coast-blue'        // 终章 搜索演出 S05
 };
 /* v2 存档槽 key 的合法格式（与 game/src/core/saves.js 一致） */
-const SAVE_KEY_RE = /^(?:[12]-[1-6]|auto-[1-3]|quick-1)$/;
+const SAVE_KEY_RE = /^(?:[12]-[1-6]|auto-[1-6]|quick-1)$/;
 
 /* ---------- 多语言 ---------- */
 const LANG = {
@@ -98,6 +98,10 @@ function collectFromSaves() {
   const prefix = `ily-save-v2:${encodeURIComponent(player)}:`;
   const achievements = new Set();
   const progress = { story: new Set(), gallery: new Set() };
+  try {
+    const permanent = JSON.parse(localStorage.getItem(`${prefix}_achievements`) || '[]');
+    if (Array.isArray(permanent)) permanent.forEach(id => achievements.add(id));
+  } catch { /* 损坏忽略 */ }
   const merge = value => {
     if (!value || !value.flags) return;
     const f = value.flags;

@@ -19,7 +19,7 @@
     bar.append(ILY.el('span','',photo?'D / F / J / K · 跟随节拍拍照':'双击 games 文件夹，选择游戏'),pause,exit);
     pause.hidden=!photo;
     wrap.append(frame,bar);stage.replaceChildren(wrap);
-    assets.audio?.pause();
+    assets.suspend();
     const expectedOrigin=location.protocol==='file:'?'null':location.origin;
     const targetOrigin=expectedOrigin==='null'?'*':expectedOrigin;
     function send(action){frame.contentWindow?.postMessage({type:'ily-embed-control',action},targetOrigin)}
@@ -46,7 +46,7 @@
     return ()=>{
       disposed=true;observer.disconnect();
       document.removeEventListener('visibilitychange',suspend);window.removeEventListener('message',message);
-      frame.src='about:blank';wrap.remove();assets.play();
+      frame.src='about:blank';wrap.remove();assets.resume();
     };
   }
   ILY.mountPhoto=context=>mountEmbedded(context,'photo');
