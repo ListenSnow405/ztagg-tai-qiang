@@ -26,6 +26,101 @@ const device = {
   phone: () => mq('(pointer: coarse) and (hover: none)')     // 手机 / 平板；触摸屏笔记本不算
 };
 
+// ── 虚拟方向盘（手机 / 平板专用） ──
+// 只做两件事：① 把按住状态映射成「按下的键」；② 把每个键交给调用方自己的 press/release。
+// 方向键由调用方注入它本来就在用的那套输入（rpg 注入 keys 集合、walk 注入 moving 变量），
+// 所以玩法代码不需要为手柄写任何分支；动作键（调查）直接调调用方传进来的函数。
+// 只在「主指针是手指且没有悬停能力」(= 手机 / 平板) 上创建 DOM：电脑端连节点都不生成，
+// 不会出现「透明的按钮挡住画布点击」这种副作用。
+// 开关状态存 localStorage（主游戏与 winxp 小游戏窗口的 origin 相同，跨页面共用），
+// 用户把方向盘收起来之后，后面每一幕都保持收起。
+const TOUCH_PAD_KEY = 'ily-touch-pad';
+const touchPadSaved = () => {
+  try { return localStorage.getItem(TOUCH_PAD_KEY); } catch { return null; }
+};
+const touchPadSave = value => {
+  try { localStorage.setItem(TOUCH_PAD_KEY, value); } catch {}
+};
+function createTouchPad({ label, hint, buttons = [] }) {
+  if (!device.phone()) return null;
+  const root = el('div', 'touch-pad');
+  root.setAttribute('role', 'group');
+  root.setAttribute('aria-label', label || '虚拟方向盘');
+  const grid = el('div', 'touch-pad-grid');
+  const held = new Set();                 // 正在被手指按住的按钮，复位时用来清干净
+  const pairs = [];                       // [按钮, 配置]：复位时要按配置调 up()
+  const unbind = [];
+  for (const cfg of buttons) {
+    const node = el('button', 'pad-btn pad-' + cfg.pos, cfg.text);
+    node.type = 'button';
+    node.setAttribute('aria-label', cfg.title);
+    node.dataset.code = cfg.code || '';
+    const stop = event => { event.preventDefault(); event.stopPropagation(); };
+    const release = () => {
+      if (!held.delete(node)) return;
+      node.classList.remove('is-down');
+      try { cfg.up?.(); } catch {}
+    };
+    const down = event => {
+      if (node.disabled) return;
+      stop(event);
+      try { node.setPointerCapture(event.pointerId); } catch {}
+      if (held.has(node)) return;
+      held.add(node);
+      node.classList.add('is-down');
+      try { cfg.down?.(); } catch {}
+    };
+    node.addEventListener('contextmenu', stop);            // 长按不弹系统菜单
+    node.addEventListener('pointerdown', down);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) node.addEventListener(type, release);
+    unbind.push([node, 'contextmenu', stop], [node, 'pointerdown', down],
+      ...['pointerup', 'pointercancel', 'lostpointercapture'].map(type => [node, type, release]));
+    pairs.push([node, cfg]);
+    grid.append(node);
+  }
+  root.append(grid);
+  if (hint) root.append(el('p', 'touch-pad-hint', hint));
+  const toggle = el('button', 'touch-pad-toggle', '手柄');
+  toggle.type = 'button';
+  /* 收起 / dispose 时把还按着的键全部松开：否则「按住方向键的同一帧里收起方向盘」
+     会让人物一直往那个方向走，直到下一次键盘事件。 */
+  const releaseEvery = () => {
+    for (const [node, cfg] of [...pairs].reverse()) {
+      if (!held.delete(node)) continue;
+      node.classList.remove('is-down');
+      try { cfg.up?.(); } catch {}
+    }
+  };
+  const apply = (value, persist) => {
+    const hidden = value === false;
+    if (hidden) releaseEvery();
+    root.hidden = hidden;
+    toggle.setAttribute('aria-pressed', String(hidden));
+    toggle.setAttribute('aria-label', hidden ? '显示虚拟方向盘' : '隐藏虚拟方向盘');
+    toggle.textContent = hidden ? '手柄＋' : '手柄－';
+    if (persist) touchPadSave(hidden ? 'off' : 'on');
+  };
+  const toggleClick = event => { event.preventDefault(); apply(root.hidden, true); };
+  const blur = () => releaseEvery();                       // 切后台 / 系统弹窗吞掉 pointerup 时兜底
+  toggle.addEventListener('click', toggleClick);
+  addEventListener('blur', blur);
+  unbind.push([toggle, 'click', toggleClick], [window, 'blur', blur]);
+  root.append(toggle);
+  apply(touchPadSaved() !== 'off', false);                 // 默认显示；只有用户明确收起过才隐藏
+  return {
+    root,
+    get visible() { return !root.hidden; },
+    show: () => apply(true, true),
+    hide: () => apply(false, true),
+    toggle: () => apply(root.hidden, true),
+    dispose() {
+      releaseEvery();
+      for (const [node, type, handler] of unbind) node.removeEventListener(type, handler);
+      root.remove();
+    }
+  };
+}
+
 // ── 顶栏「隐藏」控制器 ──
 // 隐藏 = 把传入的文字区（对白框 / 旁白面板…）连同左上章标题、右上整排按钮一起
 // display:none —— 不加半透明，画面上只剩背景或 CG。
@@ -71,5 +166,5 @@ function createHideChrome(targets = []) {
   return api;
 }
 
-Object.assign(ILY, { el, button, device, createHideChrome });
+Object.assign(ILY, { el, button, device, createHideChrome, createTouchPad });
 })();

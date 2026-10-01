@@ -54,11 +54,18 @@ function mountRpg({stage,node,state,assets,go,rollback=()=>{},canRollback=()=>fa
   let touchReady=!restoringRollback;
   const keys=new Set(),images=new Map(),roomScenes=new Map(),camera={x:0,y:0,scale:1,width:1,height:1};
   let trashSprite;
+  // 触控（手机 / 平板）：沿用最初的「按住画面朝手指方向引导移动 + 点物件气泡调查」，
+  // 不再挂虚拟方向盘 —— 方向盘会压住画面、把场景挤出可视区，观感比电脑版差一截。
+  const touchUI=ILY.device?.phone?.()===true;
   const panel=el('section','rpg-panel'),canvas=el('canvas','rpg-canvas');canvas.tabIndex=0;
-  canvas.setAttribute('aria-label','操控成田基生：WASD 或方向键连续移动，也可按住画面引导移动。靠近物件后按 E 调查，PageUp 或向上滚轮回滚，Esc 打开菜单。');
+  canvas.setAttribute('aria-label',touchUI
+    ?'操控成田基生：按住画面朝手指的方向行走，走到物件旁边点它下方的「调查」气泡互动，右上角可打开菜单。'
+    :'操控成田基生：WASD 或方向键连续移动，也可按住画面引导移动。靠近物件后按 E 调查，PageUp 或向上滚轮回滚，Esc 打开菜单。');
   const ctx=canvas.getContext('2d');
   const inspect=el('dialog','rpg-inspect');panel.append(inspect);
-  const message=el('p','rpg-message','WASD / 方向键移动 · 按住画面引导 · E 调查 · PageUp / 向上滚轮回滚 · Esc 菜单');message.setAttribute('aria-live','polite');
+  const message=el('p','rpg-message',touchUI
+    ?'按住画面朝手指方向移动 · 点「调查」气泡互动 · 右上角菜单'
+    :'WASD / 方向键移动 · 按住画面引导 · E 调查 · PageUp / 向上滚轮回滚 · Esc 菜单');message.setAttribute('aria-live','polite');
   const prompt=button('',()=>interact());prompt.className='rpg-interact';prompt.hidden=true;
   const menuToggle=button('☰',()=>document.querySelector('#menu-toggle').click());menuToggle.className='rpg-menu-toggle';menuToggle.setAttribute('aria-label','打开菜单');
   const rollbackControl=button(ILY.t('menu.rollback'),()=>{if(!blocked())rollback();});
@@ -127,7 +134,7 @@ function mountRpg({stage,node,state,assets,go,rollback=()=>{},canRollback=()=>fa
   }
   const menu=document.querySelector('#game-menu'),menuInfo=el('section','rpg-menu-info'),objective=el('p');
   const auto=button('自动完成当前探索',()=>{menu.close();completeAutomatically();});
-  menuInfo.append(el('h3','','当前探索'),objective,el('p','','WASD / 方向键移动；按住画面引导；E / 空格 / Enter 调查；PageUp / 向上滚轮回滚。'),auto);menu.append(menuInfo);
+  menuInfo.append(el('h3','','当前探索'),objective,el('p','',(touchUI?'按住画面朝手指方向移动，走到物件旁点它下方的「调查」气泡互动；':'WASD / 方向键移动；按住画面引导；E / 空格 / Enter 调查；')+'PageUp / 向上滚轮回滚。'),auto);menu.append(menuInfo);
   const blocked=()=>disposed || document.hidden || !!document.querySelector('dialog[open]');
   function say(text){message.textContent=text;messageFor=4;message.hidden=false;}
   function events(){return activeRpgEvents(map,node.task).filter(e=>(e.kind!=='scream' || !state.flags.G5_SCREAM) && !p.collected.includes(e.id));}
@@ -371,10 +378,21 @@ function mountRpg({stage,node,state,assets,go,rollback=()=>{},canRollback=()=>fa
     const r=canvas.getBoundingClientRect(),t=map.tileSize||48;
     target={x:((e.clientX-r.left)/camera.scale+camera.x)/t-.5,y:((e.clientY-r.top)/camera.scale+camera.y)/t-.5};idle=0;
   }
-  function pointerdown(e){if(blocked()||e.button!==0)return;canvas.focus();canvas.setPointerCapture(e.pointerId);pointer(e);}
+  function pointerdown(e){
+    if(blocked()||e.button!==0)return;
+    canvas.focus();
+    /* 目标已经完成时，点画面就等于键盘上的 E / 空格：立刻进入下一段。
+       手机端没有键盘，这一下点按是它唯一能主动推进的入口（自动推进计时器仍然兜底）。 */
+    if(p.done){go(node.next);return;}
+    canvas.setPointerCapture(e.pointerId);pointer(e);
+  }
   function pointermove(e){if(canvas.hasPointerCapture(e.pointerId)&&!blocked())pointer(e);}
   function pointerup(e){if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);target=null;}
   const keyup=e=>keys.delete(e.key.toLowerCase()),clear=()=>{keys.clear();target=null;last=0;walking=false;};
+  // 只读诊断（验证用，不参与玩法）：地图 / 人物 / 输入集合的当前状态。
+  // 与 boss 成品的 window.ILYGame.inspect() 同一套路，方便在真机上一条命令看清「按了到底有没有动」。
+  window.ILYRpg={inspect:()=>({map:map.id,task:node.task,x:position.x,y:position.y,target:target?{...target}:null,
+    keys:[...keys],touchUI,follower:follower?{x:follower.x,y:follower.y}:null,elapsed:p.elapsed,idle,collected:[...p.collected]})};
   function tick(now){
     if(disposed)return;const dt=last?Math.min((now-last)/1000,.04):0;last=now;
     if(!blocked()&&!p.done){
@@ -390,7 +408,15 @@ function mountRpg({stage,node,state,assets,go,rollback=()=>{},canRollback=()=>fa
       if(!touch)touchReady=true;
       if(touch&&touchReady)act(touch);
       if(idle>(node.timeout||{G1:60,G2:10,G3:60,G4:90,G5:240}[node.task]||90))completeAutomatically();
-    }else{keys.clear();target=null;walking=false;if(follower)follower.walking=false;if(p.done&&!blocked()){finishedFor+=dt;if(finishedFor>=2.5){go(node.next);return;}}}
+    }else{
+      /* 目标完成 / 被弹窗挡住的收尾分支。
+         这里绝对不能把 last 清零：dt 是在本帧开头用 last 算出来的，每帧清零 last 会让
+         下一帧的 dt 永远是 0，于是 finishedFor 永远攒不到 2.5 秒 —— 电脑端还能按 E / 空格
+         手动 go()，手机端（没有键盘）就会永远卡在已完成的一帧里。 */
+      keys.clear();target=null;walking=false;
+      if(follower)follower.walking=false;
+      if(p.done&&!blocked()){finishedFor+=dt;if(finishedFor>=2.5){go(node.next);return;}}
+    }
     if(!blocked()){messageFor-=dt;message.hidden=messageFor<=0;}
     refresh();draw();frame=requestAnimationFrame(tick);
   }
@@ -399,7 +425,7 @@ function mountRpg({stage,node,state,assets,go,rollback=()=>{},canRollback=()=>fa
   canvas.addEventListener('pointerdown',pointerdown);canvas.addEventListener('pointermove',pointermove);canvas.addEventListener('pointerup',pointerup);canvas.addEventListener('pointercancel',pointerup);
   window.addEventListener('keydown',keydown);window.addEventListener('keyup',keyup);window.addEventListener('blur',clear);document.addEventListener('visibilitychange',clear);
   frame=requestAnimationFrame(tick);
-  return()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();clear();menuInfo.remove();document.body.classList.remove('rpg-active');window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',clear);document.removeEventListener('visibilitychange',clear);canvas.removeEventListener('pointerdown',pointerdown);canvas.removeEventListener('pointermove',pointermove);canvas.removeEventListener('pointerup',pointerup);canvas.removeEventListener('pointercancel',pointerup);};
+  return()=>{disposed=true;cancelAnimationFrame(frame);observer.disconnect();clear();if(window.ILYRpg?.inspect)delete window.ILYRpg;menuInfo.remove();document.body.classList.remove('rpg-active');window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',clear);document.removeEventListener('visibilitychange',clear);canvas.removeEventListener('pointerdown',pointerdown);canvas.removeEventListener('pointermove',pointermove);canvas.removeEventListener('pointerup',pointerup);canvas.removeEventListener('pointercancel',pointerup);};
 }
 Object.assign(ILY,{mountRpg,createRpgFollower});
 })();

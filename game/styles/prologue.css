@@ -160,11 +160,28 @@
   .free-phone-bar{top:10px;right:12px}}
 
 /* ===== 隧道步行 ===== */
+/* 隧道改用「手指引导」：点按画面即可行走，不需要方向盘，所以画布自己接管触摸手势。 */
 .walk{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.walk-canvas{width:100%;height:100%;display:block;background:transparent}
+.walk-canvas{width:100%;height:100%;display:block;background:transparent;touch-action:none;cursor:pointer}
 .walk-hud{position:absolute;top:12px;left:12px;color:#cdeede;font-size:13px;
   background:rgba(6,16,12,.6);padding:4px 10px;border-radius:6px}
-.walk-prompt{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#bdf3d6;font-size:14px;text-shadow:0 0 8px rgba(0,0,0,.8)}
+/* 提示条平常只是说明文字（不吃手指），身边有调查点时才变成可点的「调查」气泡。 */
+.walk-prompt{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);max-width:90%;box-sizing:border-box;
+  color:#bdf3d6;font-size:14px;font-family:inherit;text-shadow:0 0 8px rgba(0,0,0,.8);
+  background:none;border:0;padding:6px 14px;border-radius:8px;pointer-events:none}
+.walk-prompt[hidden]{display:none}
+.walk-prompt.is-action{pointer-events:auto;cursor:pointer;color:#0a141d;background:#eac983e6;border:1px solid #ffe3ad;
+  text-shadow:none;box-shadow:0 6px 20px #0009;min-height:44px}
+.walk-prompt.is-action::before{content:'▶ ';font-size:12px}
+.walk-prompt.is-action:active{background:#ffe3ad}
+@media (orientation:portrait) and (pointer:coarse){.walk-prompt{font-size:12px;bottom:18px}}
+
+/* 手机横屏：手指引导不需要任何常驻按钮，这里仅保留一句操作说明的对比度调整。
+   原先的 .walk .touch-pad 大按钮面板已随方向盘一起移除。 */
+@media (orientation:landscape) and (pointer:coarse){
+  .walk-prompt{bottom:22px}
+  .walk-prompt.is-action{min-height:52px;font-size:16px;padding:10px 22px}
+}
 
 /* 隧道尾段画面：接近出口时全屏淡入，缓慢推近 + 镜像 + 暗角，停留后走出 */
 .walk-reveal{position:absolute;inset:0;z-index:15;opacity:0;transition:opacity 1s ease;pointer-events:none}

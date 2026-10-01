@@ -23,6 +23,9 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
   let x = cfg.playerStartX || 60;
   let moving = 0;            // -1 左 / 0 / 1 右
   let exiting = false;
+  let camX = 0;              // 摄像机偏移，draw() 每帧写入；指针换算世界坐标要用
+  let guideX = null;         // 手指引导的目标（世界坐标 x，null = 没有引导）
+  const GUIDE_STOP = 6;      // 距目标多近算「到了」（画布像素），避免在目标点左右抖
 
   const bg = assets.image(cfg.bg);
   stage.style.backgroundImage = bg ? `url("${bg}")` : '';
@@ -32,7 +35,12 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
   const wrap = el('div', 'walk');
   const canvas = el('canvas', 'walk-canvas');
   const hud = el('div', 'walk-hud');
-  const prompt = el('div', 'walk-prompt', '');
+  /* 底部提示条：身边有没调查过的点时它变成一颗可点的「调查」气泡（手机靠点它互动，
+     不再需要方向盘上的调查键）；否则只显示「点按画面朝手指方向走」的引导文字。 */
+  const prompt = el('button', 'walk-prompt', '');
+  prompt.type = 'button';
+  prompt.hidden = true;
+  prompt.addEventListener('click', () => { if (dialog.hidden && nearest()) investigate(); });
   /* 不提供任何可用鼠标点击的左/右/调查按钮：A/D（方向键）移动，空格/回车调查 */
   /* 交互弹窗：调查点文字用大面板展示，打开时人物背身面向物件 */
   const dialog = el('div', 'walk-dialog');
@@ -127,6 +135,7 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
     dialog.hidden = false;
     facingBack = true;
     moving = 0;
+    guideX = null;                  // 弹窗期间不再往任何方向走
   }
   function closeDialog() {
     if (dialog.hidden) return;
@@ -150,6 +159,7 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
   function startReveal() {
     revealed = true;
     moving = 0;
+    guideX = null;
     const rc = cfg.reveal || {};
     const bgSrc = assets.image(rc.bg || cfg.bg);
     if (bgSrc) revealImg.style.backgroundImage = `url("${bgSrc}")`;
@@ -174,8 +184,8 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
       if (e.key === ' ' || e.key === 'Enter') { closeDialog(); e.preventDefault(); }
       return;
     }
-    if (key === 'd' || e.key === 'ArrowRight') { moving = 1; e.preventDefault(); }
-    else if (key === 'a' || e.key === 'ArrowLeft') { moving = -1; e.preventDefault(); }
+    if (key === 'd' || e.key === 'ArrowRight') { guideX = null; moving = 1; e.preventDefault(); }
+    else if (key === 'a' || e.key === 'ArrowLeft') { guideX = null; moving = -1; e.preventDefault(); }
     else if (e.key === ' ' || e.key === 'Enter') { if (nearest()) investigate(); e.preventDefault(); }
   }
   function onKeyUp(e) {
@@ -188,8 +198,14 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
   let last = performance.now();
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (document.querySelector('dialog[open]') || document.hidden || !dialog.hidden || revealed) moving = 0;
+    if (document.querySelector('dialog[open]') || document.hidden || !dialog.hidden || revealed) { moving = 0; guideX = null; }
     if (!exiting && !revealed) {
+      // 手指引导优先：朝目标所在的那一侧走，走到跟前（GUIDE_STOP 以内）就停下并清掉目标。
+      if (guideX !== null) {
+        const delta = guideX - x;
+        if (Math.abs(delta) <= GUIDE_STOP) { moving = 0; guideX = null; }
+        else moving = delta < 0 ? -1 : 1;
+      }
       x = Math.max(0, Math.min(length, x + moving * speed * dt));
       if (moving !== 0) walkAnimTime += dt; else walkAnimTime = 0;
       if (x >= exitX) {
@@ -206,7 +222,7 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
     // 摄像机：让玩家保持在画面 32% 处
-    const camX = Math.max(0, Math.min(length - W, x - W * 0.32));
+    camX = Math.max(0, Math.min(length - W, x - W * 0.32));
     // 地面线
     const ground = H * 0.78;
     ctx.fillStyle = 'rgba(20,30,45,0.55)';
@@ -263,6 +279,20 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
       }
       ctx.restore();
     }
+    // 手指引导的目的地：地面上一个随呼吸收缩的准星，让玩家看清「人物正在朝这里走」
+    if (guideX !== null) {
+      const gx = guideX - camX;
+      if (gx > -40 && gx < W + 40) {
+        const beat = (performance.now() / 620) % 1;
+        ctx.save();
+        ctx.globalAlpha = 0.75 * (1 - beat);
+        ctx.strokeStyle = '#cfe9ff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(gx, ground, 10 + beat * 22, 4 + beat * 9, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath(); ctx.ellipse(gx, ground, 9, 3.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      }
+    }
     // 玩家：光标 UI 精灵，移动时播放两帧走路动画；交互弹窗打开时背身面向物件
     const px = x - camX;
     ctx.save();
@@ -292,15 +322,64 @@ function mountWalk({ stage, node, state, assets, go, notify }) {
     if (ex > 0 && ex < W) { ctx.fillStyle = 'rgba(180,210,255,0.8)'; ctx.font = '12px Zpix, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(ILY.t('walk.exitLabel'), ex, ground - 80); }
     // HUD
     hud.textContent = ILY.t('walk.hud', { pct: Math.round((x / length) * 100), done: F.TUNNEL_CHECK_COUNT, total: hotspots.length });
+    // 提示条：弹窗打开 / 正在走出时收起；身边有调查点 → 可点的「调查」气泡；否则是手指引导的说明。
     const near = nearest();
-    prompt.textContent = !dialog.hidden ? '' : near ? ILY.t('walk.promptSpot', { label: near.label }) : (exiting ? '' : ILY.t('walk.promptGo'));
+    if (!dialog.hidden || exiting || revealed) prompt.hidden = true;
+    else {
+      prompt.hidden = false;
+      prompt.classList.toggle('is-action', !!near);
+      prompt.textContent = near ? ILY.t('walk.promptSpot', { label: near.label }) : ILY.t('walk.promptGo');
+    }
   }
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', onKeyUp);
   raf = requestAnimationFrame(loop);
 
+  /* ── 手指引导（手机 / 平板 / 鼠标同一套）──
+     隧道是横版一卷到底的走廊，只需要「往左 / 往右」一个自由度，所以不做方向盘：
+     点按（或按住拖动）画面任意位置，就等于把目的地钉在手指那一格，人物朝手指的方向走过去，
+     走到跟前自动停下。键盘 A/D 照旧，一按方向键就放弃当前引导目标。
+     手指正好点在身边那个调查点上时，直接调查它，不再多走一步。 */
+  const worldXAt = clientX => {
+    const r = canvas.getBoundingClientRect();
+    const local = (clientX - r.left) / (r.width || 1) * canvas.width;
+    return Math.max(0, Math.min(length, local + camX));
+  };
+  const TAP_SPOT = 110;              // 手指落在调查点左右这个范围内就算「点了它」
+  function onPointerDown(e) {
+    if (revealed || exiting || !dialog.hidden) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const wx = worldXAt(e.clientX);
+    const spot = nearest();
+    if (spot && Math.abs(wx - spot.x) <= TAP_SPOT && Math.abs(spot.x - x) <= TAP_SPOT) { investigate(); return; }
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+    guideX = wx;
+    e.preventDefault();
+  }
+  function onPointerMove(e) {
+    if (guideX === null || revealed || exiting || !dialog.hidden) return;
+    if (e.pointerType === 'mouse' && e.buttons === 0) return;    // 鼠标没按住就不跟随
+    guideX = worldXAt(e.clientX);
+  }
+  function onPointerUp() { /* 手指抬起后仍然走完这一格：轻点一下也能到，不用一直按着 */ }
+  const onContextMenu = e => e.preventDefault();      // 长按不弹系统菜单
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerUp);
+  canvas.addEventListener('contextmenu', onContextMenu);
+  canvas.style.cursor = 'pointer';
+  // 只读诊断（验证用）：引导目标 / 人物进度 / 摄像机 / 对话框状态
+  window.ILYWalk = { inspect: () => ({ x, length, camX, moving, guideX, exiting, revealed, dialogOpen: !dialog.hidden }) };
+
   return () => {
     cancelAnimationFrame(raf); clearTimeout(exitTimer);
+    canvas.removeEventListener('pointerdown', onPointerDown);
+    canvas.removeEventListener('pointermove', onPointerMove);
+    canvas.removeEventListener('pointerup', onPointerUp);
+    canvas.removeEventListener('pointercancel', onPointerUp);
+    canvas.removeEventListener('contextmenu', onContextMenu);
+    delete window.ILYWalk;
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('resize', resize);

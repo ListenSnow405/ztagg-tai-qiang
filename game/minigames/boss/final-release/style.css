@@ -48,6 +48,9 @@ footer{min-height:30px;display:flex;align-items:center;justify-content:space-bet
 #startScreen{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:clamp(28px,5vw,80px);padding:clamp(24px,6vw,90px)}
 #startScreen .menu-content{justify-self:center}
 #startScreen .instructions{margin:0;text-align:left;font-size:14px;line-height:1.8;align-self:center}
+/* 触屏设备优先看这一句：方向键 / 射击 / 低速全部由下方虚拟手柄提供（@media(pointer:coarse) 才显示手柄）。 */
+.touch-note{display:none;margin:0 0 4px;color:#8fd8ff;font-size:12px;line-height:1.6}
+@media(pointer:coarse){.touch-note{display:block}}
 .instructions h2{font-size:15px;font-weight:normal;letter-spacing:3px;color:#c5b9d6;margin:0 0 22px}
 .instructions dl{margin:0;display:grid;gap:14px}
 .instructions dl>div{display:grid;grid-template-columns:14ch max-content;column-gap:24px;align-items:baseline}
